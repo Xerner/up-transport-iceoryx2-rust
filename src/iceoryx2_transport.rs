@@ -1,13 +1,47 @@
-use up_rust::{UCode, UStatus, UUri};
-use crate::message_type::MessageType;
+use std::error::Error;
+use core::fmt::Debug;
+use iceoryx2::{port::subscriber::Subscriber, prelude::{ServiceName, ZeroCopySend}, service::ipc};
+use iceoryx2::node::{Node, NodeBuilder};
+use iceoryx2::port::publisher::{Publisher};
+use up_rust::{UCode, UMessageType, UStatus, UUri};
+use crate::config::Iceoryx2ClientOptions;
 
-/// This will be the main struct for our uProtocol transport.
-/// It will hold the state necessary to communicate with iceoryx2,
-/// such as the service connection and active listeners.
-pub struct Iceoryx2Transport {}
+pub struct Iceoryx2Transport<Service: iceoryx2::service::Service = ipc::Service> {
+    node: Node<Service>,
+    options: Iceoryx2ClientOptions
+}
 
 #[allow(dead_code)]
-impl Iceoryx2Transport {
+impl<Service: iceoryx2::service::Service> Iceoryx2Transport<Service> {
+    pub async fn new<IntoString: Into<String>>(
+        options: Iceoryx2ClientOptions,
+    ) -> Result<Self, UStatus> {
+        let node = initialize_node()?;
+        let mut transport = Self {
+            node,
+            options
+        };
+        Ok(transport)
+    }
+
+    fn get_publisher<PayloadType: Debug + Sized + ZeroCopySend>(&self, authority_name: &str) -> Result<Publisher<Service, PayloadType, ()>, Box<dyn Error>> {
+        let service_name: ServiceName = authority_name.try_into()?;
+        let service = self.node.service_builder(&service_name)
+            .publish_subscribe::<PayloadType>()
+            .open_or_create()?;
+        let publisher = service.publisher_builder().create()?;
+        Ok(publisher)
+    }
+
+    fn get_subscriber<PayloadType: Debug + Sized + ZeroCopySend>(&self, authority_name: &str) -> Result<Subscriber<Service, PayloadType, ()>, Box<dyn Error>> {
+        let service_name: ServiceName = authority_name.try_into()?;
+        let service = self.node.service_builder(&service_name)
+            .publish_subscribe::<PayloadType>()
+            .open_or_create()?;
+        let subscriber = service.subscriber_builder().create()?;
+        Ok(subscriber)
+    }
+
     fn encode_uuri_segments(uuri: &UUri) -> Vec<String> {
         vec![
             uuri.authority_name.clone(),
@@ -26,20 +60,20 @@ impl Iceoryx2Transport {
     /// send() makes use of UAttributesValidator
     /// register_listener() and unregister_listener() use verify_filter_criteria()
     /// Criteria for identification of message types can be found here: https://github.com/eclipse-uprotocol/up-spec/blob/main/basics/uattributes.adoc
-    fn determine_message_type(source: &UUri, sink: Option<&UUri>) -> Result<MessageType, UStatus> {
+    fn determine_message_type(source: &UUri, sink: Option<&UUri>) -> Result<UMessageType, UStatus> {
         let src_id = source.resource_id;
         let sink_id = sink.map(|s| s.resource_id);
 
         if src_id == 0 {
             if let Some(id) = sink_id {
                 if id >= 1 && id <= 0x7FFF {
-                    return Ok(MessageType::RpcRequest);
+                    return Ok(UMessageType::UMESSAGE_TYPE_REQUEST);
                 }
             }
         } else if sink_id == Some(0) && src_id >= 1 && src_id <= 0xFFFE {
-            return Ok(MessageType::RpcResponseOrNotification);
+            return Ok(UMessageType::UMESSAGE_TYPE_RESPONSE);
         } else if src_id >= 1 && src_id <= 0x7FFF {
-            return Ok(MessageType::Publish);
+            return Ok(UMessageType::UMESSAGE_TYPE_PUBLISH);
         }
 
         Err(UStatus::fail_with_code(
@@ -48,12 +82,11 @@ impl Iceoryx2Transport {
         ))
     }
 
-    /// Called in send(), register_listener() and unregister_listener()
     fn compute_service_name(source: &UUri, sink: Option<&UUri>) -> Result<String, UStatus> {
         let join_segments = |segments: Vec<String>| segments.join("/");
 
         match Self::determine_message_type(source, sink)? {
-            MessageType::RpcRequest => {
+            UMessageType::UMESSAGE_TYPE_REQUEST => {
                 let Some(sink_uri) = sink else {
                     return Err(UStatus::fail_with_code(
                         UCode::INVALID_ARGUMENT,
@@ -63,7 +96,7 @@ impl Iceoryx2Transport {
                 let segments = Self::encode_uuri_segments(sink_uri);
                 Ok(format!("up/{}", join_segments(segments)))
             }
-            MessageType::RpcResponseOrNotification => {
+            UMessageType::UMESSAGE_TYPE_RESPONSE => {
                 let Some(sink_uri) = sink else {
                     return Err(UStatus::fail_with_code(
                         UCode::INVALID_ARGUMENT,
@@ -78,11 +111,21 @@ impl Iceoryx2Transport {
                     join_segments(sink_segments)
                 ))
             }
-            MessageType::Publish => {
+            UMessageType::UMESSAGE_TYPE_PUBLISH => {
                 let segments = Self::encode_uuri_segments(source);
                 Ok(format!("up/{}", join_segments(segments)))
             }
         }
+    }
+}
+
+fn initialize_node<Service: iceoryx2::service::Service>() -> Result<iceoryx2::node::Node<Service>, UStatus> {
+    match NodeBuilder::new().create::<Service>() {
+        Ok(node) => Ok(node),
+        Err(err) => Err(UStatus::fail_with_code(
+            UCode::INTERNAL,
+            format!("Failed to create Iceoryx2 node: {}", err),
+        )),
     }
 }
 
