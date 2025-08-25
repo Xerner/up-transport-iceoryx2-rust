@@ -1,42 +1,41 @@
-use std::error::Error;
-use core::fmt::Debug;
-use iceoryx2::{port::subscriber::Subscriber, prelude::{ServiceName, ZeroCopySend}, service::ipc};
-use iceoryx2::node::{Node, NodeBuilder};
-use iceoryx2::port::publisher::{Publisher};
+use iceoryx2::{node::NodeBuilder, service::ipc};
+use iceoryx2::node::Node;
 use up_rust::{UCode, UMessageType, UStatus, UUri};
-use crate::config::Iceoryx2ClientOptions;
+use std::error::Error;
+use std::fmt::Debug;
+use iceoryx2::{port::{publisher::Publisher, subscriber::Subscriber}, prelude::{ServiceName, ZeroCopySend}};
+
 
 pub struct Iceoryx2Transport<Service: iceoryx2::service::Service = ipc::Service> {
+    service_name: &str,
     node: Node<Service>,
-    options: Iceoryx2ClientOptions
 }
 
 #[allow(dead_code)]
 impl<Service: iceoryx2::service::Service> Iceoryx2Transport<Service> {
     pub async fn new<IntoString: Into<String>>(
-        options: Iceoryx2ClientOptions,
+        service_name: IntoString,
+        node: Node<Service>
     ) -> Result<Self, UStatus> {
-        let node = initialize_node()?;
-        let mut transport = Self {
-            node,
-            options
+        let transport = Self {
+            node
         };
         Ok(transport)
     }
 
-    fn get_publisher<PayloadType: Debug + Sized + ZeroCopySend>(&self, authority_name: &str) -> Result<Publisher<Service, PayloadType, ()>, Box<dyn Error>> {
-        let service_name: ServiceName = authority_name.try_into()?;
+    fn publisher<PayloadType: Debug + Sized + ZeroCopySend>(&self, uuri: &UUri) -> Result<Publisher<Service, PayloadType, ()>, Box<dyn Error>> {
+        let service_name: ServiceName = uuri.authority_name().as_str().try_into()?;
         let service = self.node.service_builder(&service_name)
             .publish_subscribe::<PayloadType>()
-            .open_or_create()?;
+            .open_or_create()?;  
         let publisher = service.publisher_builder().create()?;
         Ok(publisher)
     }
 
-    fn get_subscriber<PayloadType: Debug + Sized + ZeroCopySend>(&self, authority_name: &str) -> Result<Subscriber<Service, PayloadType, ()>, Box<dyn Error>> {
-        let service_name: ServiceName = authority_name.try_into()?;
+    fn request_and_response<PayloadType: Debug + Sized + ZeroCopySend>(&self, uuri: &UUri) -> Result<Subscriber<Service, PayloadType, ()>, Box<dyn Error>> {
+        let service_name: ServiceName = uuri.authority_name().as_str().try_into()?;
         let service = self.node.service_builder(&service_name)
-            .publish_subscribe::<PayloadType>()
+            .request_response::<PayloadType>()
             .open_or_create()?;
         let subscriber = service.subscriber_builder().create()?;
         Ok(subscriber)
