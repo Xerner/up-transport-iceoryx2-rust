@@ -13,13 +13,14 @@
 
 use std::fmt::Debug;
 use iceoryx2::prelude::ZeroCopySend;
+use up_rust::UMessage;
 
-pub trait BaseUserHeader: Debug + ZeroCopySend {}
-pub trait BasePayload: Debug + ZeroCopySend {}
+#[derive(Debug)]
+#[repr(C)]
+pub struct UMessageZeroCopy(pub UMessage);
 
-pub mod transport;
-pub mod builder;
-pub mod pubsub;
-pub mod service_name_mapping;
-pub mod listener_registry;
-pub mod umessage;
+unsafe impl ZeroCopySend for UMessageZeroCopy {
+    unsafe fn type_name() -> &'static str {
+        core::any::type_name::<Self>()
+    }
+}

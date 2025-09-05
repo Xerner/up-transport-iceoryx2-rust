@@ -17,6 +17,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-up-rust = "0.5"
-iceoryx2 = "0.6.1"
+up-rust = "0.7"
 async-trait = "0.1"
+tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "signal"] }
+iceoryx2 = "0.6.1"
