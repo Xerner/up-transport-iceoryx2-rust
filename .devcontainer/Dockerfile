@@ -21,7 +21,7 @@ RUN apt-get update && \
     curl \
     gcc \
     git \
-    openjdk-17-jre \
+    openjdk-21-jre \
     zip \
     libclang-dev \
     && \
