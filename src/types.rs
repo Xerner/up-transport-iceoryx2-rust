@@ -14,12 +14,13 @@
 use iceoryx2::{
     port::{publisher::Publisher, subscriber::Subscriber},
     prelude::{ServiceName, ZeroCopySend},
-    service::ipc,
 };
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
+    sync::Arc,
 };
+use tokio::sync::RwLock;
 use up_rust::ComparableListener;
 
 use crate::{umessage::UMessageZeroCopy, uprotocolheader::UProtocolHeader};
@@ -27,8 +28,8 @@ use crate::{umessage::UMessageZeroCopy, uprotocolheader::UProtocolHeader};
 pub trait BaseUserHeader: Debug + ZeroCopySend {}
 pub trait BasePayload: Debug + ZeroCopySend {}
 
-pub(crate) type PublisherSet =
-    HashMap<ServiceName, Publisher<ipc::Service, UMessageZeroCopy, UProtocolHeader>>;
-pub(crate) type SubscriberSet =
-    HashMap<ServiceName, Subscriber<ipc::Service, UMessageZeroCopy, UProtocolHeader>>;
-pub(crate) type ListenerMap = HashMap<ServiceName, HashSet<ComparableListener>>;
+pub(crate) type PublisherSet<Service> =
+    RwLock<HashMap<ServiceName, Arc<Publisher<Service, UMessageZeroCopy, UProtocolHeader>>>>;
+pub(crate) type SubscriberSet<Service> =
+    RwLock<HashMap<ServiceName, Arc<Subscriber<Service, UMessageZeroCopy, UProtocolHeader>>>>;
+pub(crate) type ListenerMap = RwLock<HashMap<ServiceName, HashSet<ComparableListener>>>;

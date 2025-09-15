@@ -12,108 +12,30 @@
 // ################################################################################
 
 use iceoryx2::prelude::MessagingPattern;
-use std::sync::{Arc, atomic::Ordering};
-use tokio::{
-    sync::{
-        Mutex,
-        mpsc::{Receiver, Sender},
-    },
-    task::JoinHandle,
-};
-use up_rust::{UCode, UStatus};
+use std::sync::atomic::Ordering;
+use tokio::task::JoinHandle;
+use up_rust::UStatus;
 
-use crate::{
-    transport::UTransportIceoryx2,
-    workers::{
-        command::WorkerCommand, pubsub_worker::Iceoryx2PubSubWorker, worker::Iceoryx2Worker,
-    },
-};
+use crate::workers::{relay::TransportRelay, worker::Iceoryx2RelayWorker};
 
 pub struct Iceoryx2WorkerDispatcher {
-    pub command_sender: std::sync::mpsc::Sender<WorkerCommand>,
     pub messaging_pattern: MessagingPattern,
     pub handle: JoinHandle<Result<(), UStatus>>,
 }
 
 impl Iceoryx2WorkerDispatcher {
-    pub fn create_pubsub_worker(
-        buffer_size: usize,
-    ) -> (Sender<WorkerCommand>, JoinHandle<Result<(), UStatus>>) {
-        let (tx, rx) = tokio::sync::mpsc::channel::<WorkerCommand>(buffer_size);
-        let threadsafe_rx = Arc::new(Mutex::new(rx));
-        let handle = tokio::spawn(async {
-            let future = Iceoryx2WorkerDispatcher::run(threadsafe_rx);
-
-            let current_thread_runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| {
-                    UStatus::fail_with_code(
-                        UCode::INTERNAL,
-                        format!("Failed to build current_thread runtime: {e}"),
-                    )
-                })?;
-            current_thread_runtime.block_on(future)
-        });
-        (tx, handle)
+    pub fn create_listener_worker<Relay: TransportRelay>(
+        relay: Relay,
+    ) -> JoinHandle<Result<(), UStatus>> {
+        let worker = Iceoryx2RelayWorker::new(relay);
+        let future = Iceoryx2WorkerDispatcher::run(worker);
+        tokio::spawn(future)
     }
 
-    async fn run(rx: Arc<Mutex<Receiver<WorkerCommand>>>) -> Result<(), UStatus> {
-        // non-threadsafe state goes here
-        // any iceoryx2 transports that use the `ipc::Service` service implementation is not threadsafe
-        let transport = UTransportIceoryx2::default()?;
-        let mut worker =
-            Iceoryx2PubSubWorker::new(rx, transport, MessagingPattern::PublishSubscribe);
-        //
-        while worker.keep_alive().load(Ordering::Relaxed) {
-            let command_receiver = worker.get_command_receiver().clone();
-            let mut command_receiver = command_receiver.lock().await;
-            if let Ok(command) = command_receiver.try_recv() {
-                Iceoryx2WorkerDispatcher::process_command(&mut worker, command)?;
-            }
-            worker.receive_and_notify_listeners().await?;
-            // .map_err(|e| UStatus::fail_with_code(UCode::INTERNAL, e.to_string()))?;
+    async fn run<Relay: TransportRelay>(worker: Iceoryx2RelayWorker<Relay>) -> Result<(), UStatus> {
+        while worker.keep_alive.load(Ordering::Relaxed) {
+            worker.relay.relay().await?;
         }
         Ok(())
-    }
-
-    fn process_command<Worker: Iceoryx2Worker>(
-        worker: &mut Worker,
-        command: WorkerCommand,
-    ) -> Result<(), UStatus> {
-        let channel_response = match command {
-            WorkerCommand::Send {
-                message,
-                result_sender,
-            } => {
-                let result = worker.send(message);
-                result_sender.send(result)
-            }
-            WorkerCommand::RegisterListener {
-                source_filter,
-                sink_filter,
-                listener,
-                result_sender,
-            } => {
-                let result = worker.register_listener(source_filter, sink_filter, listener);
-                result_sender.send(result)
-            }
-            WorkerCommand::UnregisterListener {
-                source_filter,
-                sink_filter,
-                listener,
-                result_sender,
-            } => {
-                let result = worker.unregister_listener(source_filter, sink_filter, listener);
-                result_sender.send(result)
-            }
-        };
-        match channel_response {
-            Err(_) => Err(UStatus::fail_with_code(
-                UCode::INTERNAL,
-                "Failed to send result of command through the response channel",
-            )),
-            Ok(_) => Ok(()),
-        }
     }
 }

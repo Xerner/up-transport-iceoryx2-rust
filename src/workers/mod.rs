@@ -11,7 +11,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ################################################################################
 
-pub mod command;
 pub mod dispatcher;
-pub mod pubsub_worker;
+pub mod relay;
 pub mod worker;

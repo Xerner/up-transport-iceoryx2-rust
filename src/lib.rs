@@ -11,10 +11,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // ################################################################################
 
+pub mod pubsub;
 pub mod service_name_mapping;
 pub mod transport;
 pub mod types;
 pub mod umessage;
 pub mod uprotocolheader;
-pub mod utransport;
+pub mod utransport_pubsub;
 pub mod workers;

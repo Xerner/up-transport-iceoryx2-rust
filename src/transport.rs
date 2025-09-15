@@ -11,38 +11,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // ################################################################################
 
-use crate::workers::{command::WorkerCommand, dispatcher::Iceoryx2WorkerDispatcher};
-use iceoryx2::node::{Node, NodeBuilder};
-use tokio::{sync::mpsc::Sender, task::JoinHandle};
-use up_rust::UStatus;
+use crate::{pubsub::Iceoryx2PubSub, workers::dispatcher::Iceoryx2WorkerDispatcher};
+use tokio::task::JoinHandle;
+use up_rust::{UStatus, UTransport};
 
-pub struct UTransportIceoryx2<Service: iceoryx2::service::Service> {
-    pub(crate) node: Node<Service>,
+pub struct UTransportIceoryx2<Transport: UTransport> {
+    pub(crate) relay_worker_handle: JoinHandle<Result<(), UStatus>>,
+    pub transport: Transport,
 }
 
 /// Acts as a uProtocol-specific interface for the Iceoryx2 transport system
-impl<Service: iceoryx2::service::Service> UTransportIceoryx2<Service> {
-    pub fn publish_subscribe() -> (Sender<WorkerCommand>, JoinHandle<Result<(), UStatus>>) {
-        let (command_sender, worker_thread_handle) =
-            Iceoryx2WorkerDispatcher::create_pubsub_worker(1024);
-        (command_sender, worker_thread_handle)
-    }
-
-    pub(crate) fn default() -> Result<UTransportIceoryx2<Service>, UStatus> {
-        let configure_fn: Option<fn(&NodeBuilder)> = None;
-        Self::create(configure_fn)
-    }
-
-    fn create(
-        configure: Option<impl FnOnce(&NodeBuilder)>,
-    ) -> Result<UTransportIceoryx2<Service>, UStatus> {
-        let node_builder = NodeBuilder::new();
-        if let Some(configure) = configure {
-            configure(&node_builder);
+impl<Transport: UTransport> UTransportIceoryx2<Transport> {
+    pub fn publish_subscribe() -> UTransportIceoryx2<Iceoryx2PubSub> {
+        let transport = Iceoryx2PubSub::new();
+        let relay_worker_handle =
+            Iceoryx2WorkerDispatcher::create_listener_worker(transport.clone());
+        UTransportIceoryx2 {
+            relay_worker_handle,
+            transport,
         }
-        let node = node_builder
-            .create::<Service>()
-            .expect("Failed to create Iceoryx2 Node");
-        Ok(UTransportIceoryx2 { node })
     }
 }

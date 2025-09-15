@@ -11,20 +11,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // ################################################################################
 
-use std::sync::{Arc, atomic::AtomicBool};
+use async_trait::async_trait;
+use up_rust::UStatus;
 
-use crate::workers::relay::TransportRelay;
-
-pub struct Iceoryx2RelayWorker<Relay: TransportRelay> {
-    pub keep_alive: Arc<AtomicBool>,
-    pub relay: Relay,
-}
-
-impl<Relay: TransportRelay> Iceoryx2RelayWorker<Relay> {
-    pub fn new(relay: Relay) -> Self {
-        Self {
-            keep_alive: Arc::new(AtomicBool::new(true)),
-            relay,
-        }
-    }
+#[async_trait]
+pub trait TransportRelay: Send + Sync + 'static {
+    /// Relays any and all available messages on the transport to all registered listeners
+    async fn relay(&self) -> Result<(), UStatus>;
 }

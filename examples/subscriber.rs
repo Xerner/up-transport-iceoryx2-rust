@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("uProtocols UTransportIceoryx2 subscriber example");
     // "//*/FFFFB1DA/1/8001"
     let (source_filter, sink_filter) = Helpers::create_uuris("up://device1/10AB/3/80CD", None);
-    let (command_sender, _) = UTransportIceoryx2::<ipc::Service>::publish_subscribe();
+    let handle = UTransportIceoryx2::<ipc::Service>::publish_subscribe();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .thread_name("subscriber-example")
         .worker_threads(1)
